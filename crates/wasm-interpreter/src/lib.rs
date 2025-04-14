@@ -71,7 +71,7 @@ impl Interpreter {
 
         // Give ourselves some memory and set the stack pointer
         // (the LLVM call stack, now the Wasm stack, global 0) to the top.
-        ret.mem = vec![0; 0x8000];
+        ret.mem = vec![0; 1_000_000];
         ret.sp = ret.mem.len() as i32;
 
         // Figure out where the `__wbindgen_describe` imported function is, if
@@ -240,6 +240,10 @@ impl Interpreter {
         }
 
         for (instr, _) in block.instrs.iter() {
+            if let Some(name) = &module.funcs.get(id).name {
+                log::trace!("eval {name} {instr:?}")
+            }
+
             if let Err(err) = frame.eval(instr) {
                 if let Some(name) = &module.funcs.get(id).name {
                     panic!("{name}: {err}")
@@ -309,12 +313,13 @@ impl Frame<'_> {
             Instr::Load(e) => {
                 let address = stack.pop().unwrap();
                 ensure!(
-                    address > 0,
+                    address >= 0,
                     "Read a negative address value from the stack. Did we run out of memory?"
                 );
                 let address = address as u32 + e.arg.offset;
                 ensure!(address % 4 == 0);
-                stack.push(self.interp.mem[address as usize / 4])
+                let address = address as usize / 4;
+                stack.push(self.interp.mem[address])
             }
             Instr::Store(e) => {
                 let value = stack.pop().unwrap();
@@ -395,6 +400,116 @@ impl Frame<'_> {
                 }
             }
 
+            Instr::CallIndirect(CallIndirect { .. }) => {
+                log::warn!("Ignoring {instr:?}");
+            }
+            //     let expected_ty_id = *ty;
+            //     let table_id = *table;
+
+            //     // 1. Pop the function index from the stack
+            //     let func_index = stack.pop().unwrap();
+            //     log::debug!(
+            //         "call_indirect: type {:?}, table {:?}, index {}",
+            //         expected_ty_id,
+            //         table_id,
+            //         func_index
+            //     );
+
+            //     // 2. Resolve the index in the table to a FunctionId
+            //     //    NOTE: This requires a helper function `resolve_table_index`
+            //     //          which needs access to `self.module` and handles element segments.
+            //     //          A basic version is provided above.
+            //     let target_func_id =
+            //         Self::resolve_table_index(self.module, table_id, func_index as u32);
+
+            //     if let Some(func) = target_func_id {
+            //         // 3. Get the expected function type from the instruction
+            //         let expected_ty = self.module.types.get(expected_ty_id);
+
+            //         // --- Check for skipping profiling functions ---
+            //         let func_data = self.module.funcs.get(func);
+            //         if func_data.name.as_ref().is_some_and(|name| {
+            //             name.starts_with("__llvm_profile_init")
+            //                 || name.starts_with("__llvm_profile_register_function")
+            //                 || name.starts_with("__llvm_profile_instrument_target")
+            //         }) {
+            //             log::debug!(
+            //                 "Skipping indirect call to profiling function: {:?}",
+            //                 func_data.name
+            //             );
+            //             // Pop args based on the EXPECTED type from call_indirect
+            //             for _ in 0..expected_ty.params().len() {
+            //                 stack.pop();
+            //             }
+            //             // Push dummy return values based on the EXPECTED type
+            //             for _ in 0..expected_ty.results().len() {
+            //                 stack.push(0); // Push default value (0)
+            //             }
+
+            //             // Handle ReturnCallIndirect similar to ReturnCall
+            //             if let Instr::ReturnCallIndirect(_) = instr {
+            //                 log::debug!("return_call_indirect after skipping profiling func");
+            //                 self.done = true;
+            //             }
+            //             return Ok(()); // Skip the actual call
+            //         }
+            //         // --- End skipping check ---
+
+            //         // 4. Pop arguments from the stack based on the EXPECTED type
+            //         let mut args = (0..expected_ty.params().len())
+            //             .map(|_| stack.pop().unwrap())
+            //             .collect::<Vec<_>>();
+            //         args.reverse(); // Popped in reverse order
+
+            //         // 5. Recurse/call the resolved function
+            //         log::debug!(
+            //             "Calling func {:?} indirectly via index {} with args: {:?}",
+            //             func,
+            //             func_index,
+            //             args
+            //         );
+            //         // TODO: Verify that the actual function's type matches expected_ty?
+            //         // Wasm validation ensures this, but the interpreter might want to assert.
+            //         // let actual_ty_id = self.module.funcs.get(func).ty();
+            //         // assert_eq!(actual_ty_id, expected_ty_id, "Indirect call type mismatch!");
+
+            //         self.interp.call(func, self.module, &args);
+            //     } else {
+            //         // Handle error: function index out of bounds or points to null
+            //         // This should ideally trap in a real Wasm engine.
+            //         // How should the interpreter handle this? Log an error? Panic?
+            //         // Let's log and potentially push dummy return values if needed.
+            //         log::error!(
+            //             "CallIndirect failed: Could not resolve function index {} in table {:?}",
+            //             func_index,
+            //             table_id
+            //         );
+            //         // Pop arguments anyway based on the expected type
+            //         let expected_ty = self.module.types.get(expected_ty_id);
+            //         for _ in 0..expected_ty.params().len() {
+            //             stack.pop();
+            //         }
+            //         // Push dummy return values if the call was expected to return something
+            //         for _ in 0..expected_ty.results().len() {
+            //             stack.push(0); // Push default value (0)
+            //         }
+            //         // If it was a ReturnCallIndirect, we still need to terminate this frame.
+            //         // Or maybe it should panic? Depending on interpreter requirements.
+            //         if let Instr::ReturnCallIndirect(_) = instr {
+            //             log::debug!("return_call_indirect after failed resolution");
+            //             self.done = true; // Or perhaps panic?
+            //         }
+            //         // Depending on strictness, you might want to return an error here:
+            //         // return Err(anyhow::anyhow!("Indirect call resolution failed"));
+            //     }
+
+            //     // Handle ReturnCallIndirect similar to ReturnCall
+            //     if let Instr::ReturnCallIndirect(_) = instr {
+            //         log::debug!("return_call_indirect");
+            //         self.done = true;
+            //     }
+            // }
+
             // All other instructions shouldn't be used by our various
             // descriptor functions. LLVM optimizations may mean that some
             // of the above instructions aren't actually needed either, but
@@ -408,5 +523,185 @@ impl Frame<'_> {
         }
 
         Ok(())
+    }
+
+    fn resolve_table_index(module: &Module, table_id: TableId, index: u32) -> Option<FunctionId> {
+        use log::{debug, warn};
+        use walrus::{
+            ir::Value, ConstExpr, ElementItems, ElementKind, FunctionId, GlobalId, GlobalKind,
+            Module, RefType,
+        };
+        // Helper to resolve a ConstExpr (typically used for offsets) to a constant u32.
+        // This might involve looking up global initializers.
+        fn resolve_const_expr_to_u32(module: &Module, const_expr: &ConstExpr) -> Option<u32> {
+            match const_expr {
+                ConstExpr::Value(val) => match val {
+                    Value::I32(c) => Some(*c as u32),
+                    Value::I64(c) => Some(*c as u32), // Potential truncation, Wasm validates offset is i32
+                    _ => {
+                        warn!(
+                            "Unsupported ConstExpr::Value type for table offset: {:?}",
+                            val
+                        );
+                        None
+                    }
+                },
+                ConstExpr::Global(global_id) => resolve_global_init_to_u32(module, *global_id),
+                // Other ConstExpr variants are not valid for constant table offsets according to Wasm validation rules.
+                _ => {
+                    warn!(
+                        "Unsupported ConstExpr type for table offset: {:?}",
+                        const_expr
+                    );
+                    None
+                }
+            }
+        }
+
+        // Helper function to resolve a global's initial value to u32.
+        // Note: Globals are initialized with InitExpr, not ConstExpr.
+        fn resolve_global_init_to_u32(module: &Module, global_id: GlobalId) -> Option<u32> {
+            let global = module.globals.get(global_id);
+            match global.kind {
+                GlobalKind::Local(ref const_expr) => {
+                    // Resolve the ConstExpr used for the global's initialization.
+                    resolve_init_expr_to_u32(module, const_expr)
+                }
+                GlobalKind::Import(_) => {
+                    warn!(
+                        "Cannot statically resolve table offset: Global {:?} is imported.",
+                        global_id
+                    );
+                    None
+                }
+            }
+        }
+
+        // Helper function to resolve an InitExpr to a constant u32.
+        // Needed because Globals use InitExpr for their definition.
+        fn resolve_init_expr_to_u32(module: &Module, init_expr: &ConstExpr) -> Option<u32> {
+            match init_expr {
+                ConstExpr::Value(val) => match val {
+                    Value::I32(c) => Some(*c as u32),
+                    Value::I64(c) => Some(*c as u32), // Truncation
+                    _ => {
+                        warn!(
+                            "Unsupported InitExpr::Value type for global used as offset: {:?}",
+                            val
+                        );
+                        None
+                    }
+                },
+                ConstExpr::Global(global_id) => {
+                    // Recursively resolve the global, checking for cycles is implicitly needed by caller or Wasm validation.
+                    resolve_global_init_to_u32(module, *global_id)
+                }
+                _ => {
+                    warn!(
+                        "Unsupported InitExpr type for global used as offset: {:?}",
+                        init_expr
+                    );
+                    None
+                }
+            }
+        }
+
+        // Iterate through all element segments in the module
+        for element in module.elements.iter() {
+            // We only care about Active segments that initialize tables.
+            if let ElementKind::Active {
+                table: element_table_id,       // The TableId being initialized
+                offset: ref const_expr_offset, // The ConstExpr defining the offset
+            } = element.kind
+            {
+                // Check if this segment targets the table we are interested in
+                if element_table_id == table_id {
+                    // Try to resolve the offset expression to a constant value
+                    if let Some(base_offset) = resolve_const_expr_to_u32(module, const_expr_offset)
+                    {
+                        let (items_len, get_func_id_at_item_index): (
+                            usize,
+                            Box<dyn Fn(usize) -> Option<FunctionId>>,
+                        ) = match &element.items {
+                            ElementItems::Functions(functions) => {
+                                // Directly contains FunctionIds
+                                (
+                                    functions.len(),
+                                    Box::new(move |item_idx| functions.get(item_idx).copied()),
+                                )
+                            }
+                            ElementItems::Expressions(ref_ty, expressions) => {
+                                // Contains expressions, need to check for RefFunc
+                                if ref_ty != &RefType::Funcref {
+                                    // This segment initializes the table with something other than functions.
+                                    // Skip this segment for function resolution.
+                                    debug!(
+                                            "Skipping element {:?} for table {:?}: items are expressions of type {:?}, not funcref.",
+                                            element.id(), table_id, ref_ty
+                                        );
+                                    continue; // Move to the next element segment
+                                }
+                                (
+                                    expressions.len(),
+                                    Box::new(move |item_idx| {
+                                        match expressions.get(item_idx) {
+                                            Some(ConstExpr::RefFunc(func_id)) => Some(*func_id),
+                                            Some(ConstExpr::RefNull(_)) => None, // Explicit null reference
+                                            Some(other_expr) => {
+                                                // This shouldn't happen if ref_ty is FuncRef, but handle defensively.
+                                                warn!(
+                                                        "Unexpected expression {:?} found in funcref element segment {:?} at item index {}",
+                                                        other_expr, element.id(), item_idx
+                                                    );
+                                                None
+                                            }
+                                            None => None, // Index out of bounds for expressions vec
+                                        }
+                                    }),
+                                )
+                            }
+                        };
+
+                        let items_len_u32 = items_len as u32;
+
+                        // Check if the requested index falls within the range covered by this segment
+                        if index >= base_offset && index < base_offset + items_len_u32 {
+                            // Calculate the index within the segment's items
+                            let item_index = (index - base_offset) as usize;
+
+                            // Use the appropriate closure to get the FunctionId (or None)
+                            let func_id_option = get_func_id_at_item_index(item_index);
+
+                            debug!(
+                                "Resolved index {} in table {:?} via element {:?} (offset {}): {:?}",
+                                index,
+                                table_id,
+                                element.id(),
+                                base_offset,
+                                func_id_option
+                            );
+                            // Return the result (which could be Some(FunctionId) or None)
+                            return func_id_option;
+                        }
+                    } else {
+                        // Offset couldn't be resolved statically (e.g., imported global)
+                        warn!(
+                            "Skipping element segment {:?} for table {:?} due to unresolvable offset expression: {:?}",
+                            element.id(),
+                            table_id,
+                            const_expr_offset
+                        );
+                    }
+                }
+            }
+            // Ignore Passive and Declared segments as they don't auto-initialize tables.
+        }
+
+        // If no active segment covering the index was found or resolved
+        debug!(
+            "Index {} in table {:?} not found in any resolvable active element segment.",
+            index, table_id
+        );
+        None
     }
 }

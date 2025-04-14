@@ -52,6 +52,7 @@ impl WasmBindgenDescriptorsSection {
             if !export.name.starts_with(prefix) {
                 continue;
             }
+            log::debug!("execute_exports {}", export.name);
             let id = match export.item {
                 walrus::ExportItem::Function(id) => id,
                 _ => panic!("{} export not a function", export.name),
