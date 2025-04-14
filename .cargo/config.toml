@@ -1,2 +1,14 @@
-[target.'cfg(target_arch = "wasm32")']
-runner = 'cargo run -p wasm-bindgen-cli --bin wasm-bindgen-test-runner --'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/alexcrichton/raytracer?branch=update-deps"]
+git = "https://github.com/alexcrichton/raytracer"
+branch = "update-deps"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/rustwasm/weedle.git"]
+git = "https://github.com/rustwasm/weedle.git"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
