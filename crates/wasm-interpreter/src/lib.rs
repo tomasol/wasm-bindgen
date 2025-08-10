@@ -105,7 +105,7 @@ impl Interpreter {
 
         // Give ourselves some memory and set the stack pointer
         // (the LLVM call stack, now the Wasm stack, global 0) to the top.
-        ret.mem = vec![0; 0x8000];
+        ret.mem = vec![0; 1_000_000];
         ret.sp = ret.mem.len() as i32;
 
         // Figure out where the `__wbindgen_describe` imported function is, if
